@@ -19,8 +19,8 @@ jobs:
           java-version: '17'
 
       # SDK und NDK sind rund 2 GB. Ohne Cache lädt jeder Lauf sie neu.
-      # Der Schritt muss VOR dem Bauen stehen, sonst wird der Cache nur
-      # geschrieben und nie zurückgespielt.
+      # Muss VOR dem Bauen stehen, sonst wird der Cache nur geschrieben
+      # und nie zurückgespielt.
       - name: SDK und NDK aus dem Cache
         uses: actions/cache@v4
         with:
@@ -46,11 +46,34 @@ jobs:
       - name: Pfad für Buildozer exportieren
         run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      # Die Lizenzen nimmt jetzt buildozer.spec an
-      # (android.accept_sdk_license = True). Die vorinstallierten
-      # SDK-Pfade des Runners werden geleert, damit Buildozer sein
-      # eigenes SDK benutzt - unset statt Leerstring, sonst sieht
-      # manches Werkzeug einen leeren Pfad statt gar keinen.
+      # Erster Durchgang: holt SDK und NDK. Die Lizenzfrage beantwortet
+      # jetzt buildozer.spec (android.accept_sdk_license = True).
+      # Bricht dieser Durchgang ab, geht es trotzdem weiter - der
+      # nächste Schritt räumt die bekannte Stolperstelle weg, und der
+      # Durchgang danach meldet jeden echten Fehler.
+      - name: SDK holen
+        run: |
+          unset ANDROID_SDK_ROOT ANDROID_NDK_ROOT ANDROID_HOME
+          buildozer -v android debug || echo "erster Durchgang abgebrochen, weiter"
+
+      # Buildozer nimmt immer die neuesten Build-Tools und verlangt
+      # darin das Werkzeug aidl. Google liefert aidl in den neuen
+      # Fassungen nicht mehr mit. Falls es fehlt, holen wir die alte
+      # 33.0.2 und legen ihr aidl daneben.
+      - name: aidl nachreichen, falls es fehlt
+        run: |
+          SDK=$HOME/.buildozer/android/platform/android-sdk
+          test -d "$SDK/build-tools" || exit 0
+          NEU=$(ls "$SDK/build-tools" | sort -V | tail -1)
+          if [ -x "$SDK/build-tools/$NEU/aidl" ]; then
+            echo "aidl ist in $NEU vorhanden, nichts zu tun"
+            exit 0
+          fi
+          echo "aidl fehlt in $NEU - hole es aus 33.0.2"
+          yes | "$SDK/tools/bin/sdkmanager" --sdk_root="$SDK" "build-tools;33.0.2"
+          cp "$SDK/build-tools/33.0.2/aidl" "$SDK/build-tools/$NEU/aidl"
+          chmod +x "$SDK/build-tools/$NEU/aidl"
+
       - name: Spiel mit Buildozer kompilieren
         run: |
           unset ANDROID_SDK_ROOT ANDROID_NDK_ROOT ANDROID_HOME
