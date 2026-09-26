@@ -36,9 +36,11 @@ android.presplash_color = #000000
 # icon.filename = %(source.dir)s/icon.png
 
 # Android 14 als Ziel, ab Android 7 lauffähig
-android.api = 34
-android.minapi = 24
-android.ndk_api = 24
+android.api = 33
+android.minapi = 21
+
+# Korrekte NDK-Version festlegen, um Pfadfehler zu vermeiden
+android.ndk = 25b
 
 # Erster Build nur 64 Bit - das halbiert die Bauzeit. Für den Play
 # Store später: android.archs = arm64-v8a, armeabi-v7a
