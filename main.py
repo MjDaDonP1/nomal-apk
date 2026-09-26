@@ -12,6 +12,7 @@ import math
 import os
 import random
 import sys
+import traceback
 from collections import namedtuple
 from datetime import datetime
 
@@ -2958,7 +2959,20 @@ def load_game_resources():
             "up": [pygame.transform.scale(sprite_sheet.subsurface(pygame.Rect(x * sprite_size[0], 384, *sprite_size)), sprite_size) for x in range(4)],
         }
 
-        door_sheet = pygame.image.load(os.path.join(image_dir, "Tür.png")).convert_alpha()
+        # Das Tuerbild hiess urspruenglich "Tür.png". In einer APK liegen
+        # die Dateien in einem Archiv, und nicht jedes Android packt
+        # Nicht-ASCII-Namen unveraendert wieder aus. Deshalb kommt die
+        # ASCII-Fassung zuerst; der Umlaut bleibt nur als Rueckfall.
+        door_sheet = None
+        for _name in ("Tuer.png", "Tür.png", "tuer.png", "door.png"):
+            _pfad = os.path.join(image_dir, _name)
+            if os.path.exists(_pfad):
+                door_sheet = pygame.image.load(_pfad).convert_alpha()
+                break
+        if door_sheet is None:
+            vorhanden = ", ".join(sorted(os.listdir(image_dir))[:12])
+            raise FileNotFoundError(
+                f"Tuerbild nicht gefunden in {image_dir}. Dort liegt: {vorhanden}")
         # Das Blatt hat 4 Spalten und 2 Zeilen. Die Zellgroesse wird aus dem
         # Bild gelesen, nicht fest angenommen - so passen altes und neues
         # Blatt. Zelle (0,0) ist die geschlossene, (1,0) die offene Tuer.
@@ -2976,8 +2990,10 @@ def load_game_resources():
         return background_image, player_sprites, (door_closed, door_open)
 
     except Exception as e:
+        # Welche Datei gefehlt hat, steht in der Meldung - auf dem
+        # Handy ist das die einzige Spur, die man bekommt.
         print(f"Fehler beim Laden der Spielressourcen: {e}")
-        return None, None, None
+        raise RuntimeError(f"Spielbilder: {e}") from e
 
 
 def load_paper_sprite():
@@ -5564,6 +5580,52 @@ def main():
             sys.exit()
 
 
-if __name__ == "__main__":
-    main()
+def zeige_absturz(text):
+    """Zeigt einen Fehler auf dem Bildschirm und wartet auf eine
+    Beruehrung.
 
+    Am Rechner landet so etwas im Fenster, auf dem Handy sieht es
+    niemand - dort schliesst sich die App wortlos. Das hier ist die
+    einzige Stelle, an der man den Grund lesen kann."""
+    try:
+        schrift = pygame.font.Font(None, 30)
+        anzeige.fill((20, 8, 8))
+        y = 40
+        fertig = False
+        for absatz in text.split("\n"):
+            while absatz and not fertig:
+                stueck, absatz = absatz[:58], absatz[58:]
+                anzeige.blit(schrift.render(stueck, True, (250, 230, 230)),
+                             (24, y))
+                y += 32
+                fertig = y > anzeige.get_height() - 60
+            if fertig:
+                break
+        bild_zeigen()
+        warten = True
+        while warten:
+            for e in ereignisse():
+                if e.type in (pygame.QUIT, pygame.FINGERDOWN,
+                              pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
+                    warten = False
+            pygame.time.wait(50)
+    except Exception:
+        pass          # wenn nicht einmal das geht, ist ohnehin Schluss
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        fehler = traceback.format_exc()
+        print(fehler)
+        try:
+            with open(daten_pfad("absturz.txt"), "w", encoding="utf-8") as f:
+                f.write(fehler)
+        except Exception:
+            pass
+        zeige_absturz(fehler)
+        pygame.quit()
+        sys.exit(1)
