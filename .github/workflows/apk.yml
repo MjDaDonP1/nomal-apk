@@ -1,0 +1,53 @@
+name: APK bauen
+
+# Läuft bei jedem Push und lässt sich auf der Actions-Seite auch von
+# Hand starten (Knopf "Run workflow").
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  android:
+    name: nomal für Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Projekt holen
+        uses: actions/checkout@v4
+
+      # Der teure Teil ist das Herunterladen von SDK und NDK, rund 2 GB.
+      # Dieser Schritt muss VOR dem Bauen stehen - nur dann wird der
+      # Cache auch zurückgespielt und nicht bloß am Ende geschrieben.
+      - name: SDK und NDK aus dem Cache
+        uses: actions/cache@v4
+        with:
+          path: .buildozer-global
+          key: buildozer-global-${{ hashFiles('buildozer.spec') }}
+          restore-keys: buildozer-global-
+
+      # Baut in einem Container, der Java und die Werkzeuge mitbringt.
+      # Erster Lauf 30-60 Minuten, danach wenige.
+      - name: Mit Buildozer bauen
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          buildozer_version: stable
+
+      # Danach liegt die APK unter "Artifacts" auf der Seite des Laufs.
+      - name: APK ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: nomal-apk
+          path: ${{ steps.buildozer.outputs.filename }}
+
+      # Geht etwas schief: das vollständige Protokoll mitnehmen, dann
+      # muss niemand raten.
+      - name: Protokoll bei Fehlschlag
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bau-protokoll
+          path: |
+            .buildozer/android/platform/build-*/build.log
+            .buildozer/**/*.log
+          if-no-files-found: ignore
