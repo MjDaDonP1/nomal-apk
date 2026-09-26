@@ -19,10 +19,18 @@ source.include_patterns = images/*,fonts/*
 
 version = 0.1
 
-# python3 und pygame reicht. numpy ist optional: das Spiel rechnet
-# damit die Felsumrisse sauberer frei, kommt aber auch ohne aus.
-# Wenn du es willst: requirements = python3,pygame,numpy
-requirements = python3,pygame
+# Python muss auf 3.10 festgenagelt werden. Das pygame-Rezept von
+# python-for-android holt fest pygame 2.1.0, und dessen C-Code bindet
+# <longintrepr.h> ein. Diese Datei liegt nur bis Python 3.10 im
+# öffentlichen Include-Ordner; ab 3.11 ist sie nach cpython/
+# gewandert. Ohne die Festlegung baut p4a gegen Python 3.14, und der
+# Übersetzer bricht mit "longintrepr.h file not found" ab.
+#
+# hostpython3 muss dieselbe Fassung sein wie python3.
+#
+# numpy ist optional: das Spiel rechnet damit die Felsumrisse sauberer
+# frei, kommt aber auch ohne aus. Wenn du es willst, hinten anhängen.
+requirements = python3==3.10.12,hostpython3==3.10.12,pygame
 
 # Das Spiel rechnet in 1024x1024. Hochkant bleibt unten Platz für die
 # Bedienknöpfe; quer wäre das Bild größer, aber die Knöpfe lägen darauf.
