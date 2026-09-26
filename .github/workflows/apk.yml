@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  android:
+  build:
     name: nomal für Android
     runs-on: ubuntu-22.04
     steps:
@@ -18,32 +18,37 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: System-Abhängigkeiten vorbereiten
+      - name: System-Abhängigkeiten und Android-Tools installieren
         run: |
+          sudo dpkg --add-architecture i386
           sudo apt-get update
           sudo apt-get install -y \
-            git zip unzip openjdk-17-jdk python3-pip autoconf libtool \
-            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+            build-setup build-essential git python3 python3-dev python3-pip \
+            autoconf libtool pkg-config zlib1g-dev libncurses5-dev \
+            libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev \
+            ant openjdk-17-jdk zip unzip libltdl-dev
 
-      - name: Buildozer und Tools installieren
+      - name: Cython und Buildozer installieren
         run: |
           pip3 install --upgrade pip
-          pip3 install --user --upgrade buildozer cython==0.29.36
+          pip3 install --user --upgrade setuptools wheel
+          pip3 install --user --upgrade cython==0.29.36
+          pip3 install --user --upgrade buildozer
 
-      - name: Mit Buildozer bauen
-        uses: Fisheye/buildozer-action@v0.2
-        id: buildozer
-        with:
-          command: buildozer -v android debug
-          buildozer_version: master
+      - name: Pfad für Buildozer exportieren
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: APK ablegen
+      - name: Spiel mit Buildozer kompilieren
+        run: |
+          buildozer -v android debug
+
+      - name: APK als Artefakt hochladen
         uses: actions/upload-artifact@v4
         with:
           name: nomal-apk
           path: bin/*.apk
 
-      - name: Protokoll bei Fehlschlag
+      - name: Protokoll bei Fehlschlag ausgeben
         if: failure()
         uses: actions/upload-artifact@v4
         with:
