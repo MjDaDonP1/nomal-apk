@@ -40,6 +40,9 @@ jobs:
 
       - name: Spiel mit Buildozer kompilieren
         run: |
+          mkdir -p $HOME/.android
+          touch $HOME/.android/repositories.cfg
+          yes | sdkmanager --licenses || true
           buildozer -v android debug
 
       - name: APK als Artefakt hochladen
