@@ -40,7 +40,6 @@ jobs:
 
       - name: Android SDK Lizenzen erzwingen
         run: |
-          # Wir erstellen den erwarteten SDK-Pfad und die Lizenzdatei vorab im Home-Verzeichnis von Buildozer
           mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
           echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c55" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
           echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" >> /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
