@@ -35,12 +35,15 @@ android.presplash_color = #000000
 # Sobald du ein Symbol hast (512x512 png), diese Zeile einkommentieren:
 # icon.filename = %(source.dir)s/icon.png
 
-# Android 14 als Ziel, ab Android 7 lauffähig
-android.api = 33
-android.minapi = 21
+# Die Lizenzen des Android-SDK ohne Rückfrage annehmen. Ohne das
+# bleibt der Bau auf dem Server an einer Eingabeaufforderung stehen,
+# die niemand beantworten kann.
+android.accept_sdk_license = True
 
-# Korrekte NDK-Version festlegen, um Pfadfehler zu vermeiden
-android.ndk = 25b
+# Android 14 als Ziel, ab Android 7 lauffähig
+android.api = 34
+android.minapi = 24
+android.ndk_api = 24
 
 # Erster Build nur 64 Bit - das halbiert die Bauzeit. Für den Play
 # Store später: android.archs = arm64-v8a, armeabi-v7a
