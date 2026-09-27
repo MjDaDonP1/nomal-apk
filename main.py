@@ -34,6 +34,11 @@ ANDROID = "ANDROID_ARGUMENT" in os.environ
 # Bildschirmbedienung - sie laege sonst unter den Tasten.
 TASTATUR_OFFEN = False
 
+# True, solange ein Dialogfenster offen ist. Davon haengt ab, was ein
+# kurzer Tipper auf dem Bildschirm schickt: Enter zum Bestaetigen
+# oder Leertaste zum Handeln.
+DIALOG_OFFEN = False
+
 
 def daten_pfad(name):
     """Ort fuer Dateien, die das Spiel SCHREIBT (Spielstaende,
@@ -2043,6 +2048,8 @@ class DialogSystem:
     # -----------------------------------------------------------
     def show_dialog(self, text, choices=None, farbe=None):
         """Normaler Dialog. farbe bestimmt, wer spricht."""
+        global DIALOG_OFFEN
+        DIALOG_OFFEN = True
         self.active = True
         self.vers_modus = False
         self.input_modus = False
@@ -2054,6 +2061,8 @@ class DialogSystem:
     def show_poem(self, text, choices=None, farbe=None):
         """Gedicht oder Zettel: Versform bleibt erhalten, alles zentriert,
         der Text füllt das ganze Dialogfeld."""
+        global DIALOG_OFFEN
+        DIALOG_OFFEN = True
         self.active = True
         self.vers_modus = True
         self.input_modus = False
@@ -2085,6 +2094,8 @@ class DialogSystem:
         pygame.key.start_text_input()
 
     def hide_dialog(self):
+        global DIALOG_OFFEN
+        DIALOG_OFFEN = False
         self.active = False
         self.vers_modus = False
         if self.input_modus:
@@ -2453,38 +2464,44 @@ except pygame.error:
 # Bedienung auf dem Bildschirm
 # ------------------------------------------------------------------
 # Das Spiel kennt nur Tastatur. Statt die Spiellogik umzubauen, legt
-# sich hier eine Schicht davor: die Knoepfe nehmen Fingertipper
-# entgegen und schicken genau die Tasten, die auch eine Tastatur
-# schicken wuerde.
+# sich hier eine Schicht davor, die Beruehrungen in genau die Tasten
+# uebersetzt, die auch eine Tastatur schicken wuerde.
 #
-# Gehaltene Tasten (Laufen, Sprint) meldet sie ueber tastenstand(),
-# jeden Druck zusaetzlich als echtes KEYDOWN/KEYUP in der
-# Warteschlange - davon leben die Menues und die Dialogauswahl.
-# Der Rest des Spiels merkt von alldem nichts.
+# Bewegt wird mit einem wandernden Stock: wo der Daumen aufsetzt, ist
+# die Mitte; wohin er zieht, ist die Richtung. Es gibt also keine
+# Stelle, die man treffen muss - der Daumen darf hinfassen, wo er
+# gerade liegt. Ein kurzer Tipper ohne Ziehen ist die Aktionstaste.
+#
+# Gehaltene Tasten meldet die Schicht ueber tastenstand(), jeden Druck
+# zusaetzlich als echtes KEYDOWN/KEYUP in der Warteschlange - davon
+# leben die Menues und die Dialogauswahl.
 
 TASTE_ZURUECK = getattr(pygame, "K_AC_BACK", -1)   # Zurueck-Taste des Handys
 
-# Blickrichtung je Pfeiltaste - fuers Zeichnen der Dreiecke
 PFEILRICHTUNG = {pygame.K_UP: (0, -1), pygame.K_DOWN: (0, 1),
                  pygame.K_LEFT: (-1, 0), pygame.K_RIGHT: (1, 0)}
 
 
 class Bildschirmsteuerung:
-    """Vier Pfeiltasten links unten, Knoepfe rechts, kleine Reihe oben.
+    """Wanderstock zum Laufen, ein Halteknopf, vier Knoepfe oben."""
 
-    Die Pfeiltasten sind einzelne eckige Tasten im Kreuz angeordnet -
-    dieselbe Form wie auf der Tastatur, jede ein eigenes Feld."""
-
-    FUELLUNG = (18, 16, 22, 130)
-    RAND = (168, 162, 178, 175)
+    FUELLUNG = (18, 16, 22, 120)
+    RAND = (168, 162, 178, 170)
     GEDRUECKT = (200, 40, 40, 190)
     SCHRIFT = (236, 233, 242)
+    STOCK_RING = (150, 146, 158, 110)
+    STOCK_KNAUF = (210, 205, 215, 150)
+
+    # Ab dieser Entfernung vom Aufsetzpunkt gilt es als Ziehen und
+    # nicht mehr als Tippen. Anteil der kurzen Bildschirmseite.
+    TOTZONE = 0.045
+    # Laenger als das gedrueckt gehalten ist kein Tipper mehr, auch
+    # wenn der Daumen stillstand - sonst loest jedes Absetzen aus.
+    TIPP_DAUER = 500                                  # Millisekunden
 
     def __init__(self, flaeche):
-        # Am Rechner bleibt sie aus und laesst sich mit F2 einschalten,
-        # um das Handy-Gefuehl auszuprobieren.
         self.sichtbar = ANDROID
-        self.finger = {}          # Finger-ID -> Taste (oder None)
+        self.finger = {}          # Finger-ID -> Zustand
         self.groesse = None
         self._aufbauen(flaeche.get_size())
 
@@ -2492,114 +2509,79 @@ class Bildschirmsteuerung:
     # Aufbau
     # --------------------------------------------------------------
     def _aufbauen(self, groesse):
-        """Legt die Tasten an. Alle Masse haengen an der kurzen Seite,
-        damit es auf jedem Display gleich gross wirkt.
+        """Legt die Knoepfe an. Alle Masse haengen an der kurzen Seite,
+        damit es hochkant wie quer gleich gross wirkt.
 
-        Ein Eintrag ist (x, y, halbe_breite, Beschriftung, Taste,
-        halten, eckig)."""
+        Ein Eintrag ist (x, y, Radius, Beschriftung, Taste, halten)."""
         self.groesse = groesse
         b, h = groesse
         k = min(b, h)
         m = k * 0.05
+        self.totzone = k * self.TOTZONE
+        self.stock_r = k * 0.11
 
-        # ---- Pfeiltasten: Kreuz aus vier eckigen Tasten ----
-        self.taste_h = k * 0.062          # halbe Kantenlaenge
-        spalt = self.taste_h * 0.24
-        schritt = self.taste_h * 2 + spalt
-        cx = m + self.taste_h * 3 + spalt
-        cy = h - m - self.taste_h * 3 - spalt
-        th = self.taste_h
-        pfeile = [
-            (cx, cy - schritt, th, "", pygame.K_UP, True, True),
-            (cx, cy + schritt, th, "", pygame.K_DOWN, True, True),
-            (cx - schritt, cy, th, "", pygame.K_LEFT, True, True),
-            (cx + schritt, cy, th, "", pygame.K_RIGHT, True, True),
-        ]
-
-        # ---- Knoepfe rechts und oben ----
-        ra = k * 0.105
-        rb = k * 0.068
-        rs = k * 0.048
-        self.knoepfe = pfeile + [
-            (b - m - ra, h - m - ra, ra, "A", pygame.K_SPACE, False, False),
-            (b - m - ra * 2 - rb * 1.15, h - m - rb, rb, "OK",
-             pygame.K_RETURN, False, False),
-            (b - m - rb, h - m - ra * 2 - rb * 1.15, rb, "Lauf",
-             pygame.K_LSHIFT, True, False),
+        rl = k * 0.085                       # Halteknopf zum Sprinten
+        rs = k * 0.048                       # Reihe oben
+        self.knoepfe = [
+            (b - m - rl, h - m - rl, rl, "Lauf", pygame.K_LSHIFT, True),
             # Die obere Reihe sitzt tiefer, als sie muesste: ganz oben
             # liegen bei vielen Handys Kerbe und Statusleiste.
-            (b - m - rs, m * 2 + rs, rs, "Menü", pygame.K_ESCAPE, False, False),
-            (b - m - rs * 2.6, m * 2 + rs, rs, "Zeug", pygame.K_i, False, False),
-            (b - m - rs * 4.2, m * 2 + rs, rs, "Uhr", pygame.K_u, False, False),
-            (b - m - rs * 5.8, m * 2 + rs, rs, "Licht", pygame.K_t, False, False),
+            (b - m - rs, m * 2 + rs, rs, "Menü", pygame.K_ESCAPE, False),
+            (b - m - rs * 2.6, m * 2 + rs, rs, "Zeug", pygame.K_i, False),
+            (b - m - rs * 4.2, m * 2 + rs, rs, "Uhr", pygame.K_u, False),
+            (b - m - rs * 5.8, m * 2 + rs, rs, "Licht", pygame.K_t, False),
         ]
         self.schrift = pygame.font.Font(None, max(14, int(rs * 0.78)))
         self.ruhe = self._ruhebild()
+        self.bereiche = self._bereiche()
+
+    def _bereiche(self):
+        """Die zwei Flecken, auf denen Knoepfe liegen.
+
+        Das Ruhebild ist so gross wie das Display. Es jedes Bild ganz
+        zu blitten kostet Millionen Bildpunkte mit Alphakanal, von
+        denen fast alle durchsichtig sind. Diese Ausschnitte sind ein
+        Bruchteil davon."""
+        kaesten = [pygame.Rect(x - r - 4, y - r - 4, r * 2 + 8, r * 2 + 8)
+                   for x, y, r, _t, _k, _h in self.knoepfe]
+        return [kaesten[0], kaesten[1].unionall(kaesten[2:])]
 
     def _ruhebild(self):
-        """Das unveraenderliche Bild der Bedienung - einmal gezeichnet,
-        danach nur noch geblittet."""
+        """Das unveraenderliche Bild - einmal gezeichnet, danach nur
+        noch geblittet."""
         flaeche = pygame.Surface(self.groesse, pygame.SRCALPHA)
         for eintrag in self.knoepfe:
             self._malen(flaeche, eintrag, self.FUELLUNG, self.RAND)
         return flaeche.convert_alpha()
 
     def _malen(self, flaeche, eintrag, fuellung, strich):
-        x, y, r, text, taste, _halten, eckig = eintrag
-        if eckig:
-            kasten = pygame.Rect(x - r, y - r, r * 2, r * 2)
-            ecke = int(r * 0.28)
-            if fuellung:
-                pygame.draw.rect(flaeche, fuellung, kasten, border_radius=ecke)
-            pygame.draw.rect(flaeche, strich, kasten, 3, border_radius=ecke)
-            ax, ay = PFEILRICHTUNG[taste]
-            self._pfeil(flaeche, x, y, ax, ay, r * 0.42, strich)
-            return
+        x, y, r, text, _taste, _halten = eintrag
         if fuellung:
             pygame.draw.circle(flaeche, fuellung, (x, y), r)
         pygame.draw.circle(flaeche, strich, (x, y), r, 3)
-        if text:
+        if text and fuellung:
             schrift = self.schrift.render(text, True, self.SCHRIFT)
             flaeche.blit(schrift, schrift.get_rect(center=(x, y)))
-
-    @staticmethod
-    def _pfeil(flaeche, x, y, ax, ay, gr, farbe):
-        """Gleichschenkliges Dreieck, das in Richtung (ax, ay) zeigt."""
-        px, py = -ay, ax
-        pygame.draw.polygon(flaeche, farbe, [
-            (x + ax * gr, y + ay * gr),
-            (x - ax * gr + px * gr * 0.9, y - ay * gr + py * gr * 0.9),
-            (x - ax * gr - px * gr * 0.9, y - ay * gr - py * gr * 0.9)])
 
     # --------------------------------------------------------------
     # Treffer
     # --------------------------------------------------------------
-    def _zone(self, pos):
-        """Welche Taste liegt unter dem Finger? None, wenn keine.
-
-        Die Pfeiltasten bekommen einen unsichtbaren Rand von einer
-        Viertel Tastenbreite: auf Glas trifft der Daumen selten genau,
-        und ein Schritt, der nicht kommt, faellt mehr auf als einer,
-        der eine Spur zu frueh kommt."""
+    def _knopf(self, pos):
+        """Liegt ein Knopf unter dem Finger? Sonst None."""
         x, y = pos
-        for eintrag in self.knoepfe:
-            kx, ky, r, _text, taste, _halten, eckig = eintrag
-            if eckig:
-                rand = r * 1.25
-                if abs(x - kx) <= rand and abs(y - ky) <= rand:
-                    return taste
-            elif (x - kx) ** 2 + (y - ky) ** 2 <= r * r:
-                return taste
+        for kx, ky, r, _text, taste, halten in self.knoepfe:
+            if (x - kx) ** 2 + (y - ky) ** 2 <= r * r:
+                return taste, halten
         return None
 
-    def _haelt(self, taste):
-        for _x, _y, _r, _text, t, halten, _eckig in self.knoepfe:
-            if t == taste:
-                return halten
-        return False
+    @staticmethod
+    def _richtung(dx, dy):
+        """Eine Richtung zur Zeit - mehr kennt das Spiel nicht."""
+        if abs(dx) > abs(dy):
+            return pygame.K_RIGHT if dx > 0 else pygame.K_LEFT
+        return pygame.K_DOWN if dy > 0 else pygame.K_UP
 
     def _fingerpunkt(self, e):
-        """Fingerereignisse kommen als Anteil der Fensterbreite."""
         return e.x * self.groesse[0], e.y * self.groesse[1]
 
     @staticmethod
@@ -2611,8 +2593,7 @@ class Bildschirmsteuerung:
     # Ereignisse
     # --------------------------------------------------------------
     def ereignis(self, e):
-        """True, wenn das Ereignis zur Bedienung gehoerte und der Rest
-        des Spiels es nicht mehr sehen soll."""
+        """True, wenn das Ereignis zur Bedienung gehoerte."""
         if not self.sichtbar or TASTATUR_OFFEN:
             return False
         if e.type == pygame.FINGERDOWN:
@@ -2621,6 +2602,14 @@ class Bildschirmsteuerung:
             return self._bewegt(e.finger_id, self._fingerpunkt(e))
         if e.type == pygame.FINGERUP:
             return self._hoch(e.finger_id)
+        if ANDROID:
+            # SDL macht auf Android aus jeder Beruehrung ZUSAETZLICH
+            # ein Mausereignis. Wer beides auswertet, zaehlt jeden
+            # Tipper doppelt - dann springt die Menueauswahl zwei
+            # Zeilen weiter, und ein Schalter wie die Uhr geht im
+            # selben Bild an und wieder aus. Auf dem Handy zaehlen
+            # deshalb nur Finger.
+            return False
         if e.type == pygame.MOUSEBUTTONDOWN and e.button == 1:
             return self._runter("maus", e.pos)
         if e.type == pygame.MOUSEMOTION and e.buttons[0]:
@@ -2630,42 +2619,62 @@ class Bildschirmsteuerung:
         return False
 
     def _runter(self, fid, pos):
-        taste = self._zone(pos)
-        if taste is None:
-            return False
-        self.finger[fid] = taste
-        self._schicke(pygame.KEYDOWN, taste)
+        knopf = self._knopf(pos)
+        if knopf is not None:
+            taste, halten = knopf
+            self.finger[fid] = {"art": "knopf", "taste": taste,
+                                "halten": halten}
+            self._schicke(pygame.KEYDOWN, taste)
+            return True
+        # alles andere ist der Stock
+        self.finger[fid] = {"art": "stock", "ursprung": pos, "jetzt": pos,
+                            "taste": None, "halten": True,
+                            "zeit": pygame.time.get_ticks()}
         return True
 
     def _bewegt(self, fid, pos):
-        """Von einer Pfeiltaste auf die naechste rutschen, ohne
-        abzusetzen. Wer den Finger daneben zieht, laesst los."""
-        alt = self.finger.get(fid)
-        if alt is None:
-            return False
-        if not self._haelt(alt):
-            return True               # A, OK, Menü: Wischen aendert nichts
-        neu = self._zone(pos)
-        if neu == alt:
+        z = self.finger.get(fid)
+        if z is None or z["art"] != "stock":
+            return z is not None
+        z["jetzt"] = pos
+        dx = pos[0] - z["ursprung"][0]
+        dy = pos[1] - z["ursprung"][1]
+        if dx * dx + dy * dy < self.totzone ** 2:
+            neu = None                      # noch in der Ruhezone
+        else:
+            neu = self._richtung(dx, dy)
+        if neu == z["taste"]:
             return True
-        self._schicke(pygame.KEYUP, alt)
-        if neu is None or not self._haelt(neu):
-            del self.finger[fid]
-            return True
-        self.finger[fid] = neu
-        self._schicke(pygame.KEYDOWN, neu)
+        if z["taste"] is not None:
+            self._schicke(pygame.KEYUP, z["taste"])
+        z["taste"] = neu
+        if neu is not None:
+            self._schicke(pygame.KEYDOWN, neu)
         return True
 
     def _hoch(self, fid):
-        alt = self.finger.pop(fid, None)
-        if alt is None:
+        z = self.finger.pop(fid, None)
+        if z is None:
             return False
-        self._schicke(pygame.KEYUP, alt)
+        if z["taste"] is not None:
+            self._schicke(pygame.KEYUP, z["taste"])
+            return True
+        if z["art"] == "stock":
+            # nie aus der Ruhezone heraus und kurz genug: ein Tipper
+            kurz = pygame.time.get_ticks() - z["zeit"] <= self.TIPP_DAUER
+            if kurz:
+                # Im Dialog bestaetigt Enter, sonst ist es die
+                # Aktionstaste. Das Hauptmenue nimmt beide.
+                self._schicke(pygame.KEYDOWN,
+                              pygame.K_RETURN if DIALOG_OFFEN else pygame.K_SPACE)
+                self._schicke(pygame.KEYUP,
+                              pygame.K_RETURN if DIALOG_OFFEN else pygame.K_SPACE)
         return True
 
     def tasten(self):
         """Die gerade gehaltenen Tasten - fuer tastenstand()."""
-        return {t for t in self.finger.values() if self._haelt(t)}
+        return {z["taste"] for z in self.finger.values()
+                if z["halten"] and z["taste"] is not None}
 
     # --------------------------------------------------------------
     # Zeichnen
@@ -2674,15 +2683,30 @@ class Bildschirmsteuerung:
         if not self.sichtbar or TASTATUR_OFFEN:
             return
         if flaeche.get_size() != self.groesse:
-            self._aufbauen(flaeche.get_size())      # Fenster hat sich geaendert
-        flaeche.blit(self.ruhe, (0, 0))
+            self._aufbauen(flaeche.get_size())      # gedreht oder skaliert
+        for kasten in self.bereiche:
+            flaeche.blit(self.ruhe, kasten.topleft, kasten)
 
-        gedrueckt = set(self.finger.values())
-        if not gedrueckt:
-            return
+        gedrueckt = {z["taste"] for z in self.finger.values() if z["taste"]}
         for eintrag in self.knoepfe:
             if eintrag[4] in gedrueckt:
                 self._malen(flaeche, eintrag, None, self.GEDRUECKT)
+
+        # Der Stock wird nur gezeigt, solange ein Daumen liegt. Ohne
+        # das weiss niemand, wo die Mitte gerade ist.
+        for z in self.finger.values():
+            if z["art"] != "stock":
+                continue
+            ux, uy = z["ursprung"]
+            pygame.draw.circle(flaeche, self.STOCK_RING, (ux, uy),
+                               self.stock_r, 3)
+            dx = z["jetzt"][0] - ux
+            dy = z["jetzt"][1] - uy
+            laenge = max(1.0, (dx * dx + dy * dy) ** 0.5)
+            if laenge > self.stock_r:            # Knauf bleibt am Ring
+                dx, dy = dx / laenge * self.stock_r, dy / laenge * self.stock_r
+            pygame.draw.circle(flaeche, self.STOCK_KNAUF,
+                               (ux + dx, uy + dy), self.stock_r * 0.42)
 
 
 class _Tastenstand:
@@ -2726,8 +2750,14 @@ _SKALIERT = None
 def bild_zeigen():
     """Ersatz fuer pygame.display.flip(): rechnet das Spielbild aufs
     Display, legt die Bedienung darueber, zeigt beides."""
-    global _SKALIERT
+    global anzeige, _SKALIERT
     if screen is not anzeige:
+        if ANDROID:
+            # Beim Drehen des Geraets tauscht SDL die Zeichenflaeche
+            # aus. Wer die alte festhaelt, zeichnet ins Leere.
+            aktuell = pygame.display.get_surface()
+            if aktuell is not None:
+                anzeige = aktuell
         b, h = anzeige.get_size()
         faktor = min(b / WIDTH, h / HEIGHT)
         ziel = (int(WIDTH * faktor), int(HEIGHT * faktor))
@@ -4654,7 +4684,7 @@ def game_loop(background_image, player_sprites, door_sprites,
     # ---------------- Hauptschleife ----------------
 
     while True:
-        dt = clock.get_time() / 1000.0
+        dt = min(clock.get_time() / 1000.0, 0.2)
         play_time += dt
 
         for event in ereignisse():
@@ -5629,3 +5659,4 @@ if __name__ == "__main__":
         zeige_absturz(fehler)
         pygame.quit()
         sys.exit(1)
+
