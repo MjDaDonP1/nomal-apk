@@ -32,9 +32,10 @@ version = 0.1
 # frei, kommt aber auch ohne aus. Wenn du es willst, hinten anhängen.
 requirements = python3==3.10.12,hostpython3==3.10.12,pygame
 
-# Das Spiel rechnet in 1024x1024. Hochkant bleibt unten Platz für die
-# Bedienknöpfe; quer wäre das Bild größer, aber die Knöpfe lägen darauf.
-orientation = portrait
+# Beide Lagen. Hochkant bleibt unten Platz frei, quer wird das
+# Spielbild größer. Gedreht werden darf jederzeit: das Spiel merkt die
+# neue Größe und baut die Bedienung neu auf.
+orientation = all
 fullscreen = 1
 
 # Ladebildschirm, bis Python hochgefahren ist
